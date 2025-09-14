@@ -1,7 +1,6 @@
 #!/bin/bash
-# monitor.sh - Lightweight server monitor with Zapier integration
-# Author: Kevin
-# Version: 3.0
+# monitor.sh - Server monitor with general webhook
+# Version: 4.0
 
 ### === LOAD CONFIG (.env) === ###
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,13 +24,14 @@ LAST_NOTIFY_FILE="$SCRIPT_DIR/.last_notify"
 
 ### === FUNCTIONS === ###
 
-send_zapier() {
+send_webhook() {
     local subject="$1"
     local message="$2"
     local date=$(date +"%Y-%m-%d")
     local time=$(date +"%H:%M:%S")
 
-    curl -s -X POST "$ZAPIER_WEBHOOK" \
+    # Send JSON payload to general webhook
+    curl -s -X POST "$WEBHOOK_URL" \
          -H "Content-Type: application/json" \
          -d "{
             \"date\": \"$date\",
@@ -41,13 +41,16 @@ send_zapier() {
             \"server\": \"$HOSTNAME\"
          }" >/dev/null
 
+    # Update last notification timestamp
     echo "$(date +%s)" > "$LAST_NOTIFY_FILE"
 }
+
+### === CHECK FUNCTIONS === ###
 
 check_network() {
     if ! ping -c1 -W2 "$CHECK_HOST" >/dev/null 2>&1; then
         if [ "$(cat "$STATE_FILE" 2>/dev/null)" != "netdown" ]; then
-            send_zapier "Network Down" "⚠️ $HOSTNAME: Cannot reach $CHECK_HOST"
+            send_webhook "Network Down" "⚠️ $HOSTNAME: Cannot reach $CHECK_HOST"
             echo "netdown" > "$STATE_FILE"
         fi
     else
@@ -57,11 +60,11 @@ check_network() {
 
 check_reboot() {
     local last_boot prev_boot
-    last_boot=$(who -b | awk '{print $3,$4}') 
+    last_boot=$(who -b | awk '{print $3,$4}')
     prev_boot=$(cat "$LAST_BOOT_FILE" 2>/dev/null)
 
     if [ "$last_boot" != "$prev_boot" ]; then
-        send_zapier "Reboot" "♻️ $HOSTNAME reboot detected (boot at $last_boot)"
+        send_webhook "Reboot" "♻️ $HOSTNAME reboot detected (boot at $last_boot)"
         echo "$last_boot" > "$LAST_BOOT_FILE"
     fi
 }
@@ -70,7 +73,7 @@ check_disk() {
     local usage
     usage=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%')
     if [ "$usage" -ge "$DISK_WARN" ]; then
-        send_zapier "Disk Usage High" "💾 $HOSTNAME: Disk usage is ${usage}%"
+        send_webhook "Disk Usage High" "💾 $HOSTNAME: Disk usage is ${usage}%"
     fi
 }
 
@@ -78,7 +81,7 @@ check_memory() {
     local free
     free=$(free | awk '/Mem:/ {printf("%.0f", $4/$2 * 100)}')
     if [ "$free" -le "$MEM_WARN" ]; then
-        send_zapier "Low Memory" "🧠 $HOSTNAME: Only ${free}% memory free"
+        send_webhook "Low Memory" "🧠 $HOSTNAME: Only ${free}% memory free"
     fi
 }
 
@@ -86,7 +89,7 @@ check_load() {
     local load
     load=$(awk '{print int($1)}' /proc/loadavg)
     if [ "$load" -ge "$LOAD_WARN" ]; then
-        send_zapier "High Load" "🔥 $HOSTNAME: Load average is $load"
+        send_webhook "High Load" "🔥 $HOSTNAME: Load average is $load"
     fi
 }
 
@@ -97,7 +100,7 @@ check_heartbeat() {
     diff=$(( (now - last_notify) / 86400 ))   # days
 
     if [ "$diff" -ge 30 ]; then
-        send_zapier "Health Check" "✅ $HOSTNAME monitoring still running (no alerts for $diff days)"
+        send_webhook "Health Check" "✅ $HOSTNAME monitoring still running (no alerts for $diff days)"
     fi
 }
 
